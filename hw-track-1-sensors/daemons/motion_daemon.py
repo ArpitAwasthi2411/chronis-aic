@@ -109,6 +109,7 @@ class MotionDaemon:
         # double-tap detection state
         self._tap_timestamps: Deque[float] = deque(maxlen=4)
         self._last_tap_processed: float = -1.0
+        self._in_spike: bool = False   # edge detection: are we already inside a spike?
 
         # tunable thresholds (would be calibrated on real hardware)
         self.STILL_VAR_THRESHOLD = 0.004    # accel variance below this = still
@@ -118,27 +119,37 @@ class MotionDaemon:
         self.CHANGE_POINT_RATIO = 3.0       # recent energy vs baseline ratio to flag
 
     def _detect_tap(self, reading: IMUReading) -> bool:
-        """A tap = sharp deviation of accel magnitude from ~1g."""
+        """
+        A tap = the RISING EDGE of a sharp accel deviation from ~1g.
+
+        Edge-triggered, not level-triggered: a sustained 200ms spike is ONE
+        tap event (registered when it starts), not one per sample. Without
+        this, a long spike registers as many "taps" and false-fires the
+        double-tap detector.
+        """
         mag = reading.accel_magnitude
         if mag is None:
+            self._in_spike = False
             return False
-        deviation = abs(mag - 1.0)
-        return deviation > self.TAP_SPIKE_THRESHOLD
+        above = abs(mag - 1.0) > self.TAP_SPIKE_THRESHOLD
+        is_edge = above and not self._in_spike   # only the transition counts
+        self._in_spike = above
+        return is_edge
 
     def _check_double_tap(self, t: float, is_tap: bool) -> bool:
         """
-        Register taps; return True exactly once when two taps land within window.
+        Register taps; return True exactly once when two taps land within the
+        300ms window. After firing, the tap history is cleared (refractory) so
+        a third tap cannot pair with the second and fire again.
         """
         if is_tap:
-            # avoid double-counting a single spike across consecutive samples
-            if not self._tap_timestamps or (t - self._tap_timestamps[-1]) > 0.05:
-                self._tap_timestamps.append(t)
+            self._tap_timestamps.append(t)
 
-        # need at least 2 taps
         if len(self._tap_timestamps) >= 2:
             t1, t2 = self._tap_timestamps[-2], self._tap_timestamps[-1]
             if 0 < (t2 - t1) <= self.TAP_WINDOW_S and t2 > self._last_tap_processed:
                 self._last_tap_processed = t2
+                self._tap_timestamps.clear()   # refractory: triple-tap fires once
                 return True
         return False
 

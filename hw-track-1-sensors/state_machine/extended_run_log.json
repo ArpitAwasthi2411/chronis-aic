@@ -85,13 +85,6 @@
         146.65,
         176.65
       ]
-    },
-    {
-      "t": 161.85,
-      "window": [
-        146.85,
-        176.85
-      ]
     }
   ],
   "unavailable_events": [
@@ -150,9 +143,9 @@
     "total_samples": 11400,
     "duration_s": 570.0,
     "total_transitions": 8,
-    "double_taps_detected": 2,
+    "double_taps_detected": 1,
     "final_level": "L2",
-    "annotation_windows": 2,
+    "annotation_windows": 1,
     "rule3_injection": {
       "sensor": "imu",
       "window_s": "90.0-100.0",

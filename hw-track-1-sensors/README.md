@@ -24,7 +24,7 @@ hw-track-1-sensors/
 ├── state_machine/
 │   ├── capture_state_machine.py  # 6-level L0-L5 + exact transitions + hysteresis
 │   └── extended_run.py        # Full chained-scenario simulation
-└── tests/                     # 71 tests
+└── tests/                     # 74 tests
 ```
 
 ## Quick start
@@ -36,7 +36,7 @@ pip install -r ../requirements.txt   # numpy, pytest
 bash run_all.sh
 
 # or individually:
-python -m pytest tests/ -v                 # all 71 tests
+python -m pytest tests/ -v                 # all 74 tests
 python traces/trace_generator.py           # generate scenario traces
 python state_machine/extended_run.py       # full simulation with transition log
 ```

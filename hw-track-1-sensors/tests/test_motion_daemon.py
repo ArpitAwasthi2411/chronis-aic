@@ -85,6 +85,37 @@ class TestMotionDaemon:
         out = self.d.update(make_imu(t, az=2.2))
         assert not out.double_tap
 
+    def test_triple_tap_fires_exactly_once(self):
+        """
+        REGRESSION: three taps in quick succession must fire ONE double-tap
+        (taps 1+2), not two (taps 1+2 then 2+3). Refractory clears history.
+        """
+        t = 0.0
+        for i in range(20):
+            self.d.update(make_imu(t)); t += 0.05
+        fires = 0
+        for tap_i in range(3):
+            out = self.d.update(make_imu(t, az=2.2)); t += 0.05
+            fires += out.double_tap
+            for _ in range(2):
+                out = self.d.update(make_imu(t)); t += 0.05
+                fires += out.double_tap
+        assert fires == 1, f"triple tap fired {fires} times, must be exactly 1"
+
+    def test_sustained_spike_is_one_tap_not_many(self):
+        """
+        REGRESSION: a continuous 200ms spike (4 samples above threshold) is
+        ONE tap event (edge-triggered), so alone it can never fire double-tap.
+        """
+        t = 0.0
+        for i in range(20):
+            self.d.update(make_imu(t)); t += 0.05
+        fires = 0
+        for _ in range(4):  # 200ms sustained spike
+            out = self.d.update(make_imu(t, az=2.2)); t += 0.05
+            fires += out.double_tap
+        assert fires == 0, f"sustained spike fired {fires} times, must be 0"
+
     def test_change_point_detection(self):
         """Sudden jump in motion energy should flag a change-point."""
         t = 0.0

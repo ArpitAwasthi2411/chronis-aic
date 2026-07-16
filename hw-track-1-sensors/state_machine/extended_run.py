@@ -60,6 +60,38 @@ def sample_to_ppg(s: TraceSample) -> PPGReading:
     )
 
 
+class AsleepTracker:
+    """
+    Spec: L0 'Dormant' enters when user is asleep, defined as
+    'lying still 20+ min, low heart-rate variability'.
+
+    This tracks how long the user has been continuously (lying AND still AND
+    low-HRV). Only after 20 continuous minutes does asleep=True. Any
+    interruption resets the timer.
+    """
+    ASLEEP_HOLD_S = 20 * 60.0
+    HRV_WINDOW = 60  # samples of HR to estimate variability
+
+    def __init__(self):
+        self._still_since = None
+        self._hr_window: deque = deque(maxlen=self.HRV_WINDOW)
+
+    def update(self, t: float, lying: bool, still: bool, heart_rate: float) -> bool:
+        self._hr_window.append(heart_rate)
+        low_hrv = False
+        if len(self._hr_window) >= 10:
+            low_hrv = statistics.pstdev(self._hr_window) < 2.0  # very stable HR
+
+        candidate = lying and still and low_hrv
+        if candidate:
+            if self._still_since is None:
+                self._still_since = t
+            return (t - self._still_since) >= self.ASLEEP_HOLD_S
+        else:
+            self._still_since = None
+            return False
+
+
 class SignalExtractor:
     """
     Converts raw daemon outputs + trace context into the CaptureSignals bundle
@@ -73,6 +105,7 @@ class SignalExtractor:
         self.accel_window: deque = deque(maxlen=int(2 * SAMPLE_RATE))
         self.own_voice_streak = 0.0
         self.prev_expression = None
+        self.asleep_tracker = AsleepTracker()
         # short smoothing window (1s) so a single noisy audio sample doesn't
         # register as a real "voice energy high" event and reset hysteresis
         self.voice_energy_smooth: deque = deque(maxlen=int(1.0 * SAMPLE_RATE))
@@ -114,11 +147,16 @@ class SignalExtractor:
         hr_val = hr_out.heart_rate_bpm if hr_out.valid else HR_BASELINE
         hr_quality = hr_out.signal_quality if hr_out.valid else 0.0
 
+        # Spec-compliant asleep detection: lying still 20+ min with low HRV
+        lying = (motion_out.posture == Posture.LYING) if motion_out.valid else False
+        still = (motion_out.motion_state == MotionState.STILL) if motion_out.valid else False
+        is_asleep = self.asleep_tracker.update(s.t, lying, still, hr_val)
+
         return CaptureSignals(
             timestamp=s.t,
             worn=s.worn,
             upright=(motion_out.posture == Posture.UPRIGHT) if motion_out.valid else True,
-            asleep=(s.heart_rate < 62 and accel_activity < 0.01 and not s.speech_detected),
+            asleep=is_asleep,
             hr_trustworthy=hr_out.trustworthy if hr_out.valid else False,
             hr_quality=hr_quality,
             heart_rate=hr_val,
@@ -241,8 +279,17 @@ def run_extended_simulation(out_path: str = None, verbose: bool = True):
                       if len(extractor.orient_window) > 2 else 0.0)
         accel_act = (sum(extractor.accel_window)/len(extractor.accel_window)
                      if extractor.accel_window else 0.0)
+        prev_worn_state = worn.state
         worn_out = worn.update(s.t, hr_out.signal_quality if hr_out.valid else 0.0,
                                orient_var, accel_act)
+
+        # Spec: wake-up completion -> state machine restarts at L1
+        from daemons.worn_detector import WornState as _WS
+        if prev_worn_state == _WS.WAKING_UP and worn.state == _WS.WORN:
+            sm.restart_at_L1(s.t)
+            run_log["worn_events"].append({
+                "t": s.t, "event": "wakeup_complete_restart_L1",
+                "self_test_passed": worn_out.self_test_passed})
 
         # build signals & tick the state machine every 500ms
         signals = extractor.extract(s, motion_out, hr_out)

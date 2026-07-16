@@ -309,5 +309,17 @@ class CaptureStateMachine:
             self._down_timer_start = None  # condition re-appeared, reset
         return False
 
+    def restart_at_L1(self, timestamp: float):
+        """
+        Spec requirement: after the worn detector completes its 15-second
+        wake-up, the state machine restarts at L1 and re-assesses upward —
+        it must NOT snap back to whatever level it was at before the device
+        was taken off.
+        """
+        if self.level != Level.L1:
+            self._emit(Level.L1, "wake-up complete: restart at L1 (spec)", timestamp)
+        self._down_timer_start = None
+        self._notworn_since = None
+
     def current_config(self) -> dict:
         return LEVEL_CONFIG[self.level]

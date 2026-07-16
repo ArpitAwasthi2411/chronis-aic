@@ -193,6 +193,18 @@ class TestStateMachineHysteresis:
         self.sm.tick(base_signals(timestamp=260.0, hour_of_day=14))
         assert self.sm.level == Level.L5
 
+    def test_restart_at_L1_after_wakeup(self):
+        """
+        Spec: after the 15s wake-up, the state machine restarts at L1 —
+        it must NOT snap back to the pre-removal level.
+        """
+        self._climb_to_L5()
+        assert self.sm.level == Level.L5
+        self.sm.restart_at_L1(timestamp=500.0)
+        assert self.sm.level == Level.L1
+        # transition is logged with its cause
+        assert "restart at L1" in self.sm.transitions[-1].cause
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
