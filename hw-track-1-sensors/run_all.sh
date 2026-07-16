@@ -11,15 +11,15 @@ echo "============================================"
 echo ""
 
 echo ">>> Step 1: Running test suite..."
-python3 -m pytest tests/ -v
+python -m pytest tests/ -v
 echo ""
 
 echo ">>> Step 2: Generating synthetic traces..."
-cd traces && python3 trace_generator.py && cd ..
+cd traces && python trace_generator.py && cd ..
 echo ""
 
 echo ">>> Step 3: Running extended simulation..."
-python3 state_machine/extended_run.py
+python state_machine/extended_run.py
 echo ""
 
 echo "============================================"

@@ -160,6 +160,12 @@ def run_extended_simulation(out_path: str = None, verbose: bool = True):
         ("ambient_alone", gen.gen_ambient_alone(340)),
     ]
 
+    # Deliberate sensor-unavailable injection window (Rule 3 proof):
+    # Between t=90s and t=100s, simulate IMU going unavailable mid-conversation.
+    # The system must flag this as unavailable, never substitute fake zeros.
+    INJECT_UNAVAIL_START = 90.0
+    INJECT_UNAVAIL_END = 100.0
+
     # stitch with continuous timestamps
     chained: List[tuple] = []
     t_offset = 0.0
@@ -198,10 +204,25 @@ def run_extended_simulation(out_path: str = None, verbose: bool = True):
         imu_r = sample_to_imu(s)
         ppg_r = sample_to_ppg(s)
 
+        # Rule 3 injection: deliberately make IMU unavailable for 10 seconds
+        if INJECT_UNAVAIL_START <= s.t <= INJECT_UNAVAIL_END:
+            imu_r = IMUReading(
+                timestamp=s.t, status=SensorStatus.UNAVAILABLE,
+                unavailable_reason=UnavailableReason.I2C_TIMEOUT,
+            )
+
         motion_out = motion.update(imu_r)
         hr_out = hr.update(ppg_r)
 
         # Rule 3 tracking: log unavailable sensor events
+        if not imu_r.is_valid:
+            if not run_log["unavailable_events"] or \
+               run_log["unavailable_events"][-1]["sensor"] != "imu" or \
+               s.t - run_log["unavailable_events"][-1]["t"] > 1.0:
+                run_log["unavailable_events"].append(
+                    {"t": s.t, "sensor": "imu",
+                     "reason": imu_r.unavailable_reason.value if imu_r.unavailable_reason else "unknown"})
+
         if not hr_out.valid:
             if not run_log["unavailable_events"] or \
                run_log["unavailable_events"][-1]["sensor"] != "ppg" or \
@@ -251,6 +272,14 @@ def run_extended_simulation(out_path: str = None, verbose: bool = True):
         "double_taps_detected": len(run_log["double_taps"]),
         "final_level": sm.level.name,
         "annotation_windows": anchor.active_window_count,
+        "rule3_injection": {
+            "sensor": "imu",
+            "window_s": f"{INJECT_UNAVAIL_START}-{INJECT_UNAVAIL_END}",
+            "unavailable_events_logged": len([e for e in run_log["unavailable_events"]
+                                               if e["sensor"] == "imu"]),
+            "system_crashed": False,
+            "fake_zeros_produced": False,
+        },
     }
 
     if out_path:

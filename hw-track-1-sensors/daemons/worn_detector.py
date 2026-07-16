@@ -36,6 +36,20 @@ class WornOutput:
     orientation_component: float
     accel_component: float
     wakeup_progress: Optional[float] = None  # 0..1 during WAKING_UP
+    self_test_passed: Optional[bool] = None  # set during wake-up sequence
+
+    def metadata_entry(self) -> dict:
+        """
+        Returns worn-state data for every metadata write.
+        Sprint doc: "Log the worn/not-worn state on every single metadata write."
+        """
+        return {
+            "worn_state": self.state.value,
+            "vote_score": self.vote_score,
+            "timestamp": self.timestamp,
+            "wakeup_progress": self.wakeup_progress,
+            "self_test_passed": self.self_test_passed,
+        }
 
 
 class WornNotWornDetector:
@@ -58,6 +72,7 @@ class WornNotWornDetector:
         self._state = WornState.WORN
         self._not_worn_since: Optional[float] = None
         self._wakeup_start: Optional[float] = None
+        self._self_test_result: Optional[bool] = None
         # normalization references (calibrated on real hw later)
         self.ORIENT_VAR_REF = 5.0    # deg^2 that counts as "clearly worn"
         self.ACCEL_ACT_REF = 0.03    # accel activity that counts as "clearly worn"
@@ -108,13 +123,20 @@ class WornNotWornDetector:
                 self._not_worn_since = timestamp
                 self._wakeup_start = None
             elif progress >= 1.0:
+                # Quick self-test before fully resuming (sprint doc requirement)
+                self._self_test_result = self._run_self_test(
+                    hr_quality, orientation_variance, accel_activity)
                 self._state = WornState.WORN
                 self._wakeup_start = None
 
         wakeup_progress = None
+        self_test = None
         if self._state == WornState.WAKING_UP:
             wakeup_progress = round(
                 min(1.0, (timestamp - self._wakeup_start) / self.WAKEUP_DURATION_S), 3)
+        if self._self_test_result is not None:
+            self_test = self._self_test_result
+            self._self_test_result = None  # consume once
 
         return WornOutput(
             timestamp=timestamp,
@@ -124,7 +146,21 @@ class WornNotWornDetector:
             orientation_component=round(or_c, 3),
             accel_component=round(ac_c, 3),
             wakeup_progress=wakeup_progress,
+            self_test_passed=self_test,
         )
+
+    def _run_self_test(self, hr_q: float, orient_var: float,
+                       accel_act: float) -> bool:
+        """
+        Quick self-test during wake-up: checks that sensors are responding
+        with plausible values. Sprint doc: "run a quick self-test, then resume."
+        On real hardware this would verify I2C responses; here we check the
+        signal quality is above a minimum threshold.
+        """
+        hr_ok = hr_q > 0.3
+        orient_ok = orient_var > 0.1  # some variance = actually on a body
+        accel_ok = accel_act > 0.005
+        return hr_ok and orient_ok and accel_ok
 
     @property
     def is_worn(self) -> bool:
