@@ -75,6 +75,20 @@ class ComplementaryFilter:
         ax, ay, az = reading.accel_x, reading.accel_y, reading.accel_z
         gx, gy = reading.gyro_x, reading.gyro_y
 
+        # FUZZ FIX: reject NaN, inf, and extreme values that would poison
+        # the filter or overflow atan2. These are flagged as bad readings
+        # rather than silently corrupting pitch/roll (Rule 3 spirit).
+        vals = [ax, ay, az, gx, gy]
+        ACCEL_SANE = 100.0   # no real IMU reads 100g
+        GYRO_SANE = 10000.0  # no real IMU reads 10000 deg/s
+        for v in vals:
+            if v is None or math.isnan(v) or math.isinf(v):
+                return  # treat as invalid — keep last estimate
+        if abs(ax) > ACCEL_SANE or abs(ay) > ACCEL_SANE or abs(az) > ACCEL_SANE:
+            return
+        if abs(gx) > GYRO_SANE or abs(gy) > GYRO_SANE:
+            return
+
         # Accelerometer-derived angles (degrees)
         accel_pitch = math.degrees(math.atan2(ax, math.sqrt(ay*ay + az*az)))
         accel_roll = math.degrees(math.atan2(ay, math.sqrt(ax*ax + az*az)))
@@ -213,9 +227,10 @@ class MotionDaemon:
         # orientation
         self.filter.update(reading, self.dt)
 
-        # update windows
+        # update windows — FUZZ FIX: mag can be None if values are NaN/inf/overflow
         mag = reading.accel_magnitude
-        self._accel_window.append(mag)
+        if mag is not None:
+            self._accel_window.append(mag)
         energy = self._gesture_energy()
         self._energy_history.append(energy)
 

@@ -8,6 +8,7 @@ Rule 3 enforced here: SensorUnavailable is NEVER a zero — it's a distinct stat
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional
+import math
 import time
 
 
@@ -61,7 +62,13 @@ class IMUReading(SensorReading):
     def accel_magnitude(self) -> Optional[float]:
         if not self.is_valid:
             return None
-        return (self.accel_x**2 + self.accel_y**2 + self.accel_z**2) ** 0.5
+        try:
+            mag = (self.accel_x**2 + self.accel_y**2 + self.accel_z**2) ** 0.5
+            if math.isnan(mag) or math.isinf(mag):
+                return None
+            return mag
+        except (TypeError, OverflowError):
+            return None
 
 
 @dataclass

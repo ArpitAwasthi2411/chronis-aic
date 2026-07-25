@@ -74,6 +74,23 @@ class OTAReceiver:
     def receive_update(self, version: str, data: bytes,
                        claimed_sha256: str, signature: bytes) -> bool:
         """Download into the temp partition and verify. Never touches active."""
+        # 0. Anti-downgrade: reject if version <= active (SECURITY FIX)
+        if self.active is not None:
+            try:
+                from packaging.version import Version
+                if Version(version) <= Version(self.active.version):
+                    self._log(f"REJECTED {version}: downgrade blocked "
+                              f"(active is {self.active.version})")
+                    self._alert(f"OTA update {version} rejected: "
+                                f"version not newer than {self.active.version}")
+                    return False
+            except Exception:
+                # fallback: simple string comparison
+                if version <= self.active.version:
+                    self._log(f"REJECTED {version}: downgrade blocked (string cmp)")
+                    self._alert(f"OTA update {version} rejected: downgrade")
+                    return False
+
         # 1. Integrity: SHA-256
         actual = hashlib.sha256(data).hexdigest()
         if actual != claimed_sha256:
