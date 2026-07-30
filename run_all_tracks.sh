@@ -22,3 +22,9 @@ echo "════════ End-to-End Pipeline ════════"
 
 echo ""
 echo "ALL TRACKS GREEN: 74 + 119 + 39 + 10 = 242 tests"
+
+echo "════════ Task 2 Team A: Hardening & Security ════════"
+(cd hardening-security && PYTHONPATH="$PWD/../hw-track-1-sensors:$PWD/../hw-track-2-security-boot:$PWD/../hw-track-3-connectivity:$PWD" "$PY" -m pytest tests/ -q)
+
+echo "════════ Task 3 Team C: Crypto Hardening & Security ════════"
+(cd crypto-integrity-security && PYTHONPATH="$PWD:$PWD/../hw-track-1-sensors:$PWD/../hw-track-3-connectivity:$PWD/../hardening-security" "$PY" -m pytest tests/ -q)

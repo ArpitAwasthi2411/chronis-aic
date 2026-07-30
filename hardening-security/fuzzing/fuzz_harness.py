@@ -35,6 +35,30 @@ from mock_hal.sensor_types import (
 )
 
 
+def _redact_output(result) -> str:
+    """
+    Log daemon STATE only, never user-data values (Rule 3 privacy, Team C
+    crash-log audit). A crash log must not contain heart rate, audio energy,
+    expressions, or any capturable content — only the daemon's status/validity.
+    """
+    if result is None:
+        return "None"
+    # For known daemon outputs, log type + validity + status only
+    valid = getattr(result, "valid", None)
+    status = getattr(result, "status", None)
+    parts = [type(result).__name__]
+    if valid is not None:
+        parts.append(f"valid={valid}")
+    if status is not None:
+        parts.append(f"status={status}")
+    # motion/worn state enums are fine (not user content)
+    for attr in ("motion_state", "posture", "state", "quality_label"):
+        v = getattr(result, attr, None)
+        if v is not None:
+            parts.append(f"{attr}={v}")
+    return " ".join(parts)[:200]
+
+
 class Severity(Enum):
     CRASH = "CRASH"                    # unhandled exception -> daemon dies
     SILENT_BAD = "SILENT_BAD"          # bad data accepted as valid (Rule 3 violation)
@@ -148,7 +172,7 @@ class FuzzHarness:
             self.report.add(FuzzResult(
                 daemon_name=self.report.daemon_name,
                 fuzz_category=category, description=desc,
-                severity=sev, detail=str(result)[:200],
+                severity=sev, detail=_redact_output(result),
             ))
         except Exception as e:
             self.report.add(FuzzResult(
